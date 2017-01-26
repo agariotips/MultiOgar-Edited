@@ -22,6 +22,7 @@ function PlayerTracker(gameServer, socket) {
     this._scale = 1;
     this.isMassChanged = true;
     this.borderCounter = 0;
+    this.connectedTime = new Date();
     
     this.tickLeaderboard = 0;
     this.team = 0;
@@ -71,8 +72,8 @@ function PlayerTracker(gameServer, socket) {
     
     // Gamemode function
     if (gameServer) {
-        this.centerPos.x = gameServer.border.centerx;
-        this.centerPos.y = gameServer.border.centery;
+        this.centerPos.x = 0;
+        this.centerPos.y = 0;
         // Player id
         this.pID = gameServer.lastPlayerId++ >> 0;
         // Gamemode function
@@ -148,10 +149,9 @@ PlayerTracker.prototype.getScale = function() {
 PlayerTracker.prototype.updateMass = function() {
     this._score = 0; // reset to not cause bugs with playerlist
     for (var i = 0; i < this.cells.length; i++) {
-        var node = this.cells[i];
-        if (node === null) continue;
-        this._scale += node._size;
-        this._score += node._mass;
+        if (!this.cells[i]) continue;
+        this._scale += this.cells[i]._size;
+        this._score += this.cells[i]._mass;
     }
     if (!this._scale) {
         this._score = 0; // do not change score if no scale
@@ -163,8 +163,9 @@ PlayerTracker.prototype.updateMass = function() {
 
 PlayerTracker.prototype.joinGame = function(name, skin) {
     if (this.cells.length) return;
+
     if (skin) this.setSkin(skin);
-    if (name === null) name = "An unnamed cell";
+    if (!name) name = "An unnamed cell";
     this.setName(name);
     this.spectate = false;
     this.freeRoam = false;
@@ -203,11 +204,9 @@ PlayerTracker.prototype.checkConnection = function() {
         var dt = (this.gameServer.stepDateTime - this.socket.closeTime) / 1000;
         if (!this.cells.length || dt >= this.gameServer.config.playerDisconnectTime) {
             // Remove all client cells
-            var cells = this.cells;
             this.cells = [];
-            for (var i = 0; i < cells.length; i++) {
-                this.gameServer.removeNode(cells[i]);
-            }
+            for (var i = 0; i < this.cells.length; i++)
+                this.gameServer.removeNode(this.cells[i]);
             // Mark to remove
             this.isRemoved = true;
             return;
@@ -217,8 +216,10 @@ PlayerTracker.prototype.checkConnection = function() {
         this.socket.packetHandler.pressSpace = false;
         this.socket.packetHandler.pressQ = false;
         this.socket.packetHandler.pressW = false;
+        this.minionControl = false;
         return;
     }
+
     // Check timeout
     if (!this.isCloseRequested && this.gameServer.config.serverTimeout) {
         dt = (this.gameServer.stepDateTime - this.socket.lastAliveTime) / 1000;
@@ -230,22 +231,26 @@ PlayerTracker.prototype.checkConnection = function() {
 };
 
 PlayerTracker.prototype.updateTick = function() {
-    if (this.isRemoved) return;
+    if (this.isRemoved || this.isMinion) 
+        return; // do not update
     this.socket.packetHandler.process();
-    if (this.gameServer.clients.length > 800 && this.isMi) return;
-    if (this.spectate) {
+
+    // update spectators
+    if (this.isMi) return;
+    if (!this.spectate) {
+        // in game
+        this.updateCenterInGame();
+    } else {
         if (this.freeRoam || this.getSpectateTarget() == null) {
             // free roam
             this.updateCenterFreeRoam();
-            this._scale = this.gameServer.config.serverSpectatorScale; // 0.25;
+            this._scale = this.gameServer.config.serverSpectatorScale;
         } else {
             // spectate target
             return;
         }
-    } else {
-        // in game
-        this.updateCenterInGame();
     }
+
     // update viewbox
     var scale = Math.max(this.getScale(), this.gameServer.config.serverMinScale);
     var halfWidth = (this.gameServer.config.serverViewBaseX / scale) / 2;
@@ -261,13 +266,11 @@ PlayerTracker.prototype.updateTick = function() {
     
     // update visible nodes
     this.viewNodes = [];
-    if (!this.isMinion || !this.isMi) {
-        var self = this;
-        this.gameServer.quadTree.find(this.viewBox, function(quadItem) {
-            if (quadItem.cell.owner != self)
-                self.viewNodes.push(quadItem.cell);
-        });
-    }
+    var self = this;
+    this.gameServer.quadTree.find(this.viewBox, function(quadItem) {
+        if (quadItem.cell.owner != self)
+            self.viewNodes.push(quadItem.cell);
+    });
     this.viewNodes = this.viewNodes.concat(this.cells);
     this.viewNodes.sort(function(a, b) { return a.nodeId - b.nodeId; });
 };
@@ -275,7 +278,7 @@ PlayerTracker.prototype.updateTick = function() {
 PlayerTracker.prototype.sendUpdate = function() {
     if (this.isRemoved || !this.socket.packetHandler.protocol ||
         !this.socket.isConnected || this.isMi || this.isMinion ||
-        (this.socket._socket.writable !== null && !this.socket._socket.writable) || 
+        (this.socket._socket.writable != null && !this.socket._socket.writable) || 
         this.socket.readyState != this.socket.OPEN) {
         // do not send update for disconnected clients
         // also do not send if initialization is not complete yet
@@ -378,33 +381,25 @@ PlayerTracker.prototype.updateCenterInGame = function() { // Get center of cells
     if (!this.cells.length) return;
     var cx = 0;
     var cy = 0;
-    var count = 0;
     for (var i = 0; i < this.cells.length; i++) {
-        var node = this.cells[i];
-        cx += node.position.x;
-        cy += node.position.y;
-        count++;
+        if (!this.cells[i]) continue;
+        cx += this.cells[i].position.x;
+        cy += this.cells[i].position.y;
     }
-    if (!count) return;
-    this.centerPos.x = cx / count;
-	this.centerPos.y = cy / count;
+    this.centerPos.x = cx / this.cells.length;
+    this.centerPos.y = cy / this.cells.length;
 };
 
 PlayerTracker.prototype.updateCenterFreeRoam = function() {
+    // get distance and speed
     var dx = this.mouse.x - this.centerPos.x;
     var dy = this.mouse.y - this.centerPos.y;
-    var squared = dx * dx + dy * dy;
-    if (squared < 1) return; // stop threshold
-    // distance
-    var d = Math.sqrt(squared);
-    var nx = dx / d;
-    var ny = dy / d;
-    // speed of viewbox
-    var speed = Math.min(d, 32);
-    if (!speed) return;
-    
-    var x = this.centerPos.x + nx * speed;
-    var y = this.centerPos.y + ny * speed;
+    var d = 32 / Math.sqrt(dx * dx + dy * dy);
+    if (!d) return; // stop threshold
+
+    // set center position
+    var x = this.centerPos.x + dx * d;
+    var y = this.centerPos.y + dy * d;
     this.setCenterPos(x, y);
 };
 
@@ -419,11 +414,13 @@ PlayerTracker.prototype.pressSpace = function() {
         // Space doesn't work for freeRoam mode
         if (this.freeRoam || this.gameServer.largestClient === null)
             return;
+
     } else if (this.gameServer.run) {
         // Disable mergeOverride on the last merging cell
         if (this.cells.length <= 2) {
             this.mergeOverride = false;
         }
+        // Cant split if merging or frozen
         if (this.mergeOverride || this.frozen) 
             return;
         this.gameServer.splitCells(this);
@@ -433,8 +430,7 @@ PlayerTracker.prototype.pressSpace = function() {
 PlayerTracker.prototype.pressW = function() {
     if (this.spectate) {
         return;
-    }
-    else if (this.gameServer.run) {
+    } else if (this.gameServer.run) {
         this.gameServer.ejectMass(this);
     }
 };
@@ -455,7 +451,7 @@ PlayerTracker.prototype.pressQ = function() {
 };
 
 PlayerTracker.prototype.getSpectateTarget = function() {
-    if (this.spectateTarget === null || this.spectateTarget.isRemoved || this.spectateTarget.cells.length < 1) {
+    if (this.spectateTarget == null || this.spectateTarget.isRemoved || !this.spectateTarget.cells.length) {
         this.spectateTarget = null;
         return this.gameServer.largestClient;
     }

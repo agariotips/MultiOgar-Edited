@@ -2,9 +2,7 @@ var Cell = require('./Cell');
 
 function PlayerCell() {
     Cell.apply(this, Array.prototype.slice.call(arguments));
-    
     this.cellType = 0;
-    this._speed = null;
     this._canRemerge = false;
 }
 
@@ -20,9 +18,8 @@ PlayerCell.prototype.canEat = function (cell) {
 PlayerCell.prototype.getSpeed = function (dist) {
     var speed = 2.1106 / Math.pow(this._size, 0.449);
     var normalizedDist = Math.min(dist, 32) / 32;
-    // tickStep = 40ms
-    this._speed = speed * 40 * this.gameServer.config.playerSpeed;
-    return this._speed * normalizedDist;
+    speed *= 40 * this.gameServer.config.playerSpeed;
+    return speed * normalizedDist / dist;
 };
 
 PlayerCell.prototype.onAdd = function (gameServer) {

@@ -560,10 +560,10 @@ Commands.list = {
                     var speed = 2.1106 / Math.pow(this._size, 0.449);
                     var normalizedDist = Math.min(dist, 32) / 32;
                     // tickStep = 40ms
-                    this._speed = (this.owner.customspeed > 0) ? 
+                    this._speed = this.owner.customspeed ? 
                     speed * 40 * this.owner.customspeed : // Set by command
                     speed * 40 * this.gameServer.config.playerSpeed;
-                    return this._speed * normalizedDist;
+                    return this._speed * normalizedDist / dist;
                 };
             }
         }

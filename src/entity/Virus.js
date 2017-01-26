@@ -23,15 +23,17 @@ Virus.prototype.canEat = function (cell) {
 Virus.prototype.onEat = function (prey) {
     // Called to eat prey cell
     this.setSize(Math.sqrt(this._sizeSquared + prey._sizeSquared));
+    var angle = Math.atan2(prey.boostDirection.x, prey.boostDirection.y);
     
     if (this._size >= this.gameServer.config.virusMaxSize) {
         this.setSize(this.gameServer.config.virusMinSize); // Reset mass
-        this.gameServer.shootVirus(this, prey.boostDirection.angle);
+        this.gameServer.shootVirus(this, angle);
     }
 };
 
 Virus.prototype.onEaten = function (c) {
-    var minSize = Math.max(this.gameServer.config.playerMinSize, 32),           // maximum size of small splits
+    if (!c.owner) return; // Only players can explode
+    var minSize = Math.max(this.gameServer.config.playerMinSize, 31.6),         // maximum size of small splits
     cellsLeft = this.gameServer.config.playerMaxCells - c.owner.cells.length,   // how many cells can split
     threshold = c._mass - cellsLeft * minSize;                                  // size check for exploding cells
 

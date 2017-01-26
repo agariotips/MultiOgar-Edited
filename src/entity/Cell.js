@@ -56,7 +56,7 @@ Cell.prototype.getAge = function () {
 // Called to eat prey cell
 Cell.prototype.onEat = function (prey) {
     if (!this.gameServer.config.playerBotGrow) {
-        if (this._mass >= 625 && prey._mass <= 17 && prey.cellType == 0)
+        if (this._size >= 250 && prey._size <= 41 && prey.cellType == 0)
             prey._sizeSquared = 0; // Can't grow from players under 17 mass
     }
     this.setSize(Math.sqrt(this._sizeSquared + prey._sizeSquared));
@@ -67,13 +67,11 @@ Cell.prototype.setBoost = function (distance, angle) {
     this.boostDirection = {
         x: Math.sin(angle),
         y: Math.cos(angle),
-        angle: angle
     };
     this.isMoving = true;
     if (!this.owner) {
         var index = this.gameServer.movingNodes.indexOf(this);
-        if (index < 0)
-            this.gameServer.movingNodes.push(this);
+        if (index < 0) this.gameServer.movingNodes.push(this);
     }
 };
 
